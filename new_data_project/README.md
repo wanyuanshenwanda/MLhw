@@ -12,9 +12,6 @@
 特征选择参考：/datas/feature.txt
 清洗策略：统一时区转换、去除 inf、对缺失值使用平均值填充、过滤机器人的发言，在实际训练时会对回归和分类做一些针对性的筛选
 
-### 环境准备
-pip install -r requirements.txt，Python版本不限（建议3.10及以上）
-
 ### 运行实验
 - `make integrate`：整合数据
 - `make run` ： 运行pipeline

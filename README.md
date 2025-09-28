@@ -1,59 +1,115 @@
-# GitHub PR 分析实验
+# GitHub PR ML 实验报告
 
-本项目实现了对单个给定数据集 GitHub 仓库 Pull Request (PR) 数据的特征工程以及爬取其他仓库的PR、模型训练与结果分析，涵盖如下两项任务：
+本实验聚焦 GitHub 仓库中的 Pull Request（PR）数据，围绕两个核心任务展开：
 
-1. **任务一：预测 PR 处理时间（Time-to-Close, 小时）**  
-2. **任务二：预测 PR 是否合并（merged 二分类）**
+- **任务一：预测 PR 处理时长** —— 本实现选择“从创建到关闭的时间（Time-to-Close, `time_to_close_hours`）”作为回归目标，同时保留 Time-to-First Response 等字段以便扩展。
+- **任务二：预测 PR 是否被合并** —— 将 PR 的 `merged` 字段作为二分类标签，区分成功合并与关闭未合并的情况。
 
-整个流程关于给定数据集的训练主要通过 src/pipeline.py 完成，包括特征整合、按时间划分训练/测试集、基线模型训练、特征消融实验以及指标可视化。
-	爬取数据包括GithubPR中的pull.py,new_data_project/src/data_preprocessing中的代码，爬取数据的训练代码主要位于new_data_project/src
-	下面是关于给定数据集的训练介绍，爬取数据的训练介绍详细请查看new_data_project/README.md
+完整代码位于 `src/` 目录，包含数据整合、特征工程、模型训练、特征消融与可视化；`GithubPR/` 与 `new_data_project/` 提供数据扩展与多仓库实验支持。
 
-## 数据与时间切分
+## 1. 数据来源与防泄漏策略
 
-- 所有原始文件位于 data/ 目录，主要使用：
-  - PR_info_add_conversation.xlsx（PR 核心属性，含 created_at、closed_at 等时间字段）；
-  - PR_features.xlsx（代码、文本、评论等统计特征）；
-  - author_features.xlsx、reviewer_features.xlsx、project_features.xlsx（作者/评审/项目级特征）。
-  - GitHubPR/data：
-- 处理流程会生成聚合后的特征表 outputs/feature_table.csv，便于复用。
-- 为避免数据泄漏，训练/测试按创建时间的先后顺序划分：
-  - 训练集：created_at < 2021-06-01
-  - 测试集：created_at >= 2021-06-01
-  
-  此外为了避免模型提前知道信息对训练数据做出一定处理
+### 1.1 基础数据
 
+- 原始文件位于 `data/`：
+  - `PR_info_add_conversation.xlsx`：PR 主体信息（创建/合并/关闭时间、标题、正文等）。
+  - `PR_features.xlsx`：代码变更、文本、评论相关统计特征。
+  - `author_features.xlsx`、`reviewer_features.xlsx`、`project_features.xlsx`：作者画像、评审画像与项目级聚合特征。
+  - `PR_comment_info.xlsx` 等辅助文件用于补充首条评论时间等信息。
+- 运行 `python -m src.pipeline` 会生成 `outputs/feature_table.csv`，以便复用与下游实验。
 
+### 1.2 时间切分与数据泄漏控制
 
-## 特征工程概要
+- 在 `src/pipeline.py` 中通过 `split_by_time` 函数按创建时间划分训练/测试集：
+  - 训练集：`created_at < 2021-06-01`
+  - 测试集：`created_at ≥ 2021-06-01`
+- 切分前会先丢弃目标列的缺失项，确保评估公平；同时按时间排序保证模型只看到过去数据。
+- 去除泄漏风险特征：
+  - 在 `src/data_preparation.py` 中删除如 `time_to_merge_hours`、`first_comment_at` 等潜在泄漏字段，避免模型提前获知未来信息。
 
-- 文本/关键词：title/body 词数、字符长度、可读性评分以及 has_test/feature/bug/improve/document/refactor 等布尔标记。
-- 代码变更规模：lines_added/deleted、segs_added/deleted/changed、files_added/deleted/changed、modify_proportion、test_churn 等。
-- 结构：directories、language_types、file_types。
-- 作者：author_* 系列特征与历史 PR 数（prev_prs）。
-- 项目：project_* 系列聚合指标（周贡献、复审轮次等）。
-- 评审：reviewer_* 系列指标。
+### 1.3 数据扩展与爬虫
 
-清洗策略：统一时区转换、去除 inf、对缺失值使用训练集中位数填充（若全为空则回退为 0）。
+- `GithubPR/pull.py` 提供基于 GitHub REST API 的采集脚本：
+  - 需要在环境变量或 `.env` 中设置 `GITHUB_TOKEN`。
+  - 支持分页抓取 PR 元数据、文件改动、评审记录，并内置特征含义说明。
+  - 提供目录统计、关键字检测等示例函数，便于与本仓库特征体系对齐。
+- `new_data_project/` 目录用于多仓库（如 vscode、pytorch、paddle、stockfish）实验，内含 `Makefile` 和 `src/` 代码，对多源数据进行清洗、整合与训练。
+- 
 
-## 环境准备
+## 2. 特征工程
 
-pip install -r requirements.txt，Python版本不限（建议3.10及以上），自行配置Github token为系统变量，建议使用conda虚拟环境
+### 2.1 特征整理流程
 
-## 运行实验
+`src/data_preparation.py` 将多份 Excel 数据合并，并输出 `PreparedDatasets`：
 
-python -m src.pipeline
+1. **时间预处理**：统一转为 UTC，并生成 `time_to_close_hours/days` 等派生字段。
+2. **文本统计**：对标题与正文计算词数、字符数、可读性指标，并构造布尔关键词特征。
+3. **评论信息**：计算首条评论时间（Time-to-First Response）等互动特征。
+4. **代码规模与结构**：整合 `lines_added/deleted`、`files_changed`、`directories`、`language_types` 等代码变更指标。
+5. **作者/项目/评审画像**：将 `author_*`、`project_*`、`reviewer_*` 特征加前缀整合；引入作者历史 PR 数 `prev_prs`。
+6. **数值清洗与缺失处理**：
+   - 统一将布尔类型转为 0/1。
+   - 删除重复或泄漏危险字段（详见 `DROP_FEATURE_COLUMNS` 与 `LEAKY_FEATURE_CANDIDATES`）。
+   - 统一替换 inf/-inf 为 NaN。
 
-运行完成后将在 outputs/ 目录得到：
+### 2.2 关键特征列表（节选）
 
-- feature_table.csv：最终整合后的特征数据；
-- regression_metrics.csv / classification_metrics.csv：测试集指标；
-- regression_feature_ablation.csv / classification_feature_ablation.csv：特征消融结果；
-- figures/：各指标与消融的可视化 PNG 图。
+| 类别 | 代表特征 | 说明 |
+| ---- | -------- | ---- |
+| 文本与关键词 | `title_words`、`body_words`、`has_test`/`has_bug` 等 | 通过简单分词和字符串匹配获取文本长度与关键词布尔特征 |
+| 代码规模 | `lines_added`、`lines_deleted`、`files_changed`、`segs_changed` | 量化改动范围，反映评审工作量 |
+| 结构复杂度 | `directories`、`language_types`、`file_types` | 统计涉及目录层级与语言、文件类型多样性 |
+| 开发者经验 | `prev_prs`、`author_*` | 作者历史与画像特征，衡量贡献者熟悉度 |
+| 项目背景 | `project_*` | 项目级活动指标，例如活跃贡献者数量、评审轮次等 |
+| 评审网络 | `reviewer_*`、`reviewer_count` 等 | 描述评审团队规模与角色 |
+| 互动行为 | `comments`、`review_comments`、`time_to_first_response_hours` | 反映 PR 互动强度与响应速度 |
 
-## 模型与指标
+### 2.3 缺失值与异常处理
 
-### 任务一：时间预测（单位：小时）
+- 在模型训练前，通过 `fill_missing_within_features` 和 `fill_missing_train_test` 使用训练集的中位数填补数值缺失；当训练集合列全为 NaN 时回退为 0。
+- 字符串类字段在统计前 `fillna('')`，确保计数函数正常运行。
+- 通过 `replace([np.inf, -np.inf], np.nan)` 去除极端值干扰。
+
+## 3. 建模与实验流程
+
+### 3.1 流水线概览
+
+`src/pipeline.py` 将数据工程与建模串联：
+
+1. 调用 `build_feature_table` 生成聚合特征。
+2. 基于固定时间阈值切分训练/测试集。
+3. 进行数值特征填补并保持列顺序一致。
+4. 分别训练回归与分类基线模型，输出指标表（CSV）与图像（PNG）。
+5. 自动构建特征组（文本、结构、代码 churn、作者画像、项目画像、评审网络），执行特征消融实验并生成对比图。
+
+### 3.2 回归模型（任务一）
+
+模型定义见 `src/modeling.py`：
+
+- `LinearRegression` + 标准化：提供线性基线。
+- `RandomForestRegressor`：`n_estimators=300`、`min_samples_leaf=2`、`random_state=42`，能捕获非线性关系。
+- `GradientBoostingRegressor` 与 `HistGradientBoostingRegressor`：对复杂特征进行逐步拟合。
+- `TransformedTargetRegressor` 包裹的梯度提升模型：对目标应用 `log1p`/`expm1` 变换缓解长尾分布。
+
+### 3.3 分类模型（任务二）
+
+- `LogisticRegression`：`max_iter=1000`、`solver='lbfgs'`，验证线性可分性。
+- `RandomForestClassifier`：`n_estimators=400`、`min_samples_leaf=2`，强调稳健性。
+- `GradientBoostingClassifier`：关注精细划分边界。
+- 所有线性模型均结合 `ColumnTransformer` 对数值特征进行标准化。
+
+### 3.4 评估指标与产出
+
+- 回归：MAE、MSE、RMSE、R²。
+- 分类：Accuracy、Precision Macro、Recall Macro、F1 Macro。
+- 所有结果写入 `outputs/`：
+  - `regression_metrics.csv` / `classification_metrics.csv`
+  - `regression_feature_ablation.csv` / `classification_feature_ablation.csv`
+  - `figures/` 中的 PNG 图（指标对比、特征消融）。
+
+## 4. 实验结果与分析
+
+### 4.1 时间预测（单位：小时）
 
 | 模型 | MAE | RMSE | R² |
 | --- | --- | --- | --- |
@@ -63,22 +119,85 @@ python -m src.pipeline
 | HistGradientBoosting | 471.69 | 1089.13 | -0.23 |
 | GradientBoosting + log1p(y) | 212.92 | 976.13 | 0.01 |
 
-> 通过对目标变量使用 log1p 变换，梯度提升模型的 MAE 约为 212 小时（≈8.8 天），显著优于未变换的版本。
+- 目标分布长尾导致线性与树模型在原尺度表现欠佳，R² 为负。
+- 对 `time_to_close_hours` 进行 `log1p` 变换显著改善表现，MAE 降至约 212 小时（≈ 8.8 天），说明需要关注“极慢处理”的长尾样本。
+- 消融结果显示作者画像与项目画像特征最关键，移除后 MAE 明显上升；文本与结构特征的影响较小。
 
-### 任务二：合并预测
+### 4.2 合并预测
 
-| 模型 | Accuracy | Precision (macro) | Recall (macro) | F1 (macro) |
+| 模型 | Accuracy | Precision Macro | Recall Macro | F1 Macro |
 | --- | --- | --- | --- | --- |
 | LogisticRegression | 0.878 | 0.846 | 0.676 | 0.718 |
 | RandomForest | 0.888 | 0.867 | 0.701 | 0.747 |
 | GradientBoosting | 0.883 | 0.804 | 0.752 | 0.773 |
 
-> 梯度提升分类器在 Macro-F1 上最优，整体准确率约 88%。
+- 梯度提升分类器在 Macro-F1 上表现最佳（0.77），兼顾正负样本的召回率。
+- 随机森林提供最高准确率（0.889），但对少数类的召回略低。
+- 特征消融表明作者相关特征对预测合并概率最为敏感，移除后 Macro-F1 降至 ~0.62；文本与结构特征影响相对有限。
 
-## 特征消融洞察
+### 4.3 图表与可视化
 
-- 时间预测：移除 *author_* 或 *project_* 特征会导致误差显著上升（MAE +~9 小时）；文本/结构特征影响较小。说明作者与项目历史是预测 PR 处理时长的关键因素。
-- 合并预测：去掉作者画像后，Macro-F1 从 0.77 降至 0.62，准确率也下降到 0.81，显示作者历史对合并概率判断影响最大。移除文本、结构等对结果影响相对有限。
+- 指标柱状图与消融对比图位于 `outputs/figures/`。
 
-详细数值见 outputs/*_feature_ablation.csv。
+## 5. 结论与建议
+
+- **作者与项目画像是核心信号**：无论回归还是分类，相关特征的缺失都会显著影响模型性能，建议项目维护者维护完整的贡献者画像数据。
+- **处理时长具有明显长尾**：建议在运维中重点关注极端慢处理的 PR，可结合 `log1p` 变换或分位数回归进行建模。
+- **文本特征贡献有限但可扩展**：当前仅采用简单关键词与长度统计，可考虑引入预训练文本嵌入以提升分类性能。
+
+## 6. 项目结构与使用指南
+
+```
+.
+├── src/
+│   ├── data_preparation.py   # 数据读取与特征构建
+│   ├── modeling.py           # 模型定义与评估函数
+│   └── pipeline.py           # 端到端实验流程
+├── GithubPR/                # GitHub PR 数据爬虫脚本
+├── new_data_project/        # 多仓库数据处理与扩展实验
+├── data/                    # 原始 Excel 数据
+├── outputs/                 # 实验结果（运行后生成）
+├── requirements.txt
+└── README.md
+```
+
+### 6.1 环境准备
+
+```bash
+python -m venv .venv
+# PowerShell: .venv\Scripts\Activate.ps1
+# Bash: source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 6.2 运行基线实验
+
+```bash
+python -m src.pipeline
+```
+
+运行结束后可在 `outputs/` 查看特征表、指标 CSV 与图像文件。
+
+### 6.3 多仓库流程
+
+进入 `new_data_project/` 目录后：
+
+```bash
+make integrate          # 整合多仓库数据
+make run                # 同时执行回归与分类
+make run MODE=regressor # 仅执行回归
+make run MODE=classifier# 仅执行分类
+```
+
+特征消融分组可在 `new_data_project/src/config` 中配置。
+
+## 7 其他
+
+### 7.1 各人贡献
+
+231250119 谢卓凡：队长，负责拥有数据后的代码特征提取以及训练等，代码整合，文档编写
+
+### 7.2 代码仓库
+
+代码开源在GitHub上，地址[wanyuanshenwanda/MLhw](https://github.com/wanyuanshenwanda/MLhw)，分支hw1
 
