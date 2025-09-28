@@ -5,7 +5,9 @@
 1. **任务一：预测 PR 处理时间（Time-to-Close, 小时）**  
 2. **任务二：预测 PR 是否合并（merged 二分类）**
 
-整个流程主要通过 src/pipeline.py 完成，包括特征整合、按时间划分训练/测试集、基线模型训练、特征消融实验以及指标可视化。
+整个流程关于给定数据集的训练主要通过 src/pipeline.py 完成，包括特征整合、按时间划分训练/测试集、基线模型训练、特征消融实验以及指标可视化。
+	爬取数据包括GithubPR中的pull.py,new_data_project/src/data_preprocessing中的代码，爬取数据的训练代码主要位于new_data_project/src
+	下面是关于给定数据集的训练介绍，爬取数据的训练介绍详细请查看new_data_project/README.md
 
 ## 数据与时间切分
 
