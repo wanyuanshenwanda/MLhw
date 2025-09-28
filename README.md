@@ -208,6 +208,8 @@ make run MODE=classifier# 仅执行分类
 
 231250051 刘佳昱：队员，负责爬取新项目数据，以及特征工程的内容。
 
+231250129 王传鹏：队员，负责爬取pytorch和vscode项目的数据，以及对数据的清洗和整合。
+
 ### 7.2 代码仓库
 
 代码开源在GitHub上，地址[wanyuanshenwanda/MLhw](https://github.com/wanyuanshenwanda/MLhw)，分支hw1
