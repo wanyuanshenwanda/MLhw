@@ -34,7 +34,16 @@
   - 支持分页抓取 PR 元数据、文件改动、评审记录，并内置特征含义说明。
   - 提供目录统计、关键字检测等示例函数，便于与本仓库特征体系对齐。
 - `new_data_project/` 目录用于多仓库（如 vscode、pytorch、paddle、stockfish）实验，内含 `Makefile` 和 `src/` 代码，对多源数据进行清洗、整合与训练。
-- 
+- 速率限制处理策略：
+   github使用个人访问令牌 (PAT) 认证后，限额是每小时5000次请求。在处理分页时和爬取每个PR之间添加短暂延迟，避免过快请求
+  ```time.sleep(0.5)```
+- 相应的API
+  - 获取指定仓库的所有PR（包括open和closed）```https://api.github.com/repos/{owner}/{repo}/pulls```
+  - 获取单个PR的详细信息 ```https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}```
+  - 获取单个PR修改的文件列表 ```https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files```
+  - 获取单个PR的评审信息 ```https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews```
+  - 获取仓库的贡献者列表，用于判断用户身份 ```https://api.github.com/repos/{owner}/{repo}/contributors```
+  - 获取作者在此仓库中之前的PR数量 ```https://api.github.com/search/issues ```需要添加一些参数
 
 ## 2. 特征工程
 
@@ -196,6 +205,8 @@ make run MODE=classifier# 仅执行分类
 ### 7.1 各人贡献
 
 231250119 谢卓凡：队长，负责拥有数据后的代码特征提取以及训练等，代码整合，文档编写
+
+231250051 刘佳昱：队员，负责爬取新项目数据，以及特征工程的内容。
 
 ### 7.2 代码仓库
 
