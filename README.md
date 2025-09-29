@@ -210,6 +210,8 @@ make run MODE=classifier# 仅执行分类
 
 231250129 王传鹏：队员，负责爬取pytorch和vscode项目的数据，以及对数据的清洗和整合。
 
+231250136 刘怡然：队员，负责多仓库数据处理与扩展实验中的特征最终筛选、模型训练、评估和消融实验
+
 ### 7.2 代码仓库
 
 代码开源在GitHub上，地址[wanyuanshenwanda/MLhw](https://github.com/wanyuanshenwanda/MLhw)，分支hw1
